@@ -21,3 +21,6 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.2.0",
 ]
+
+[project.scripts]
+epita-manh-duc-nguyen-cli = "epita_manh_duc_nguyen_finnhub.cli:main"
