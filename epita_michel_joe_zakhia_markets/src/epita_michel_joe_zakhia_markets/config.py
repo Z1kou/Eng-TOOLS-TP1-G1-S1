@@ -1,4 +1,3 @@
-# src/epita_michel_joe_zakhia_markets/config.py
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv

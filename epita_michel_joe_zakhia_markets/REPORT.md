@@ -272,7 +272,7 @@ Notes on the verification command:
 
 ## Part 5: Professional Debugging Challenge (No `print()`!)
 
-Debugger used: Python's interactive debugger, `uv run python -m pdb scripts/debug_challenge.py` (no `print()` added). The breakpoint line is **line 32** in our file (`impact = compute_weighted_metric(...)`).
+Debugger used: Python's interactive debugger, `uv run python -m pdb scripts/debug_challenge.py` (no `print()` added). The breakpoint is on **line 31** (`impact = compute_weighted_metric(...)`), as in the TP.
 
 ### 1. Root Cause Analysis
 - **Observed types in the debugger:**
@@ -280,9 +280,9 @@ Debugger used: Python's interactive debugger, `uv run python -m pdb scripts/debu
   - Runtime type of `record['weight']`: `str` (`'2'`)
 
 ```text
-(Pdb) b 32
+(Pdb) b 31
 (Pdb) c
-> scripts/debug_challenge.py(32)aggregate_telemetry()
+> scripts/debug_challenge.py(31)aggregate_telemetry()
 -> impact = compute_weighted_metric(record["volume"], record["weight"])
 (Pdb) p idx
 0
@@ -295,26 +295,26 @@ Debugger used: Python's interactive debugger, `uv run python -m pdb scripts/debu
   ```text
   TypeError: can't multiply sequence by non-int of type 'str'
   ```
-  This happens on the **first** SUCCESS record (`idx == 0`), so with only the conditional breakpoint `b 32, idx == 2`, the program crashed *before* the breakpoint was ever hit and pdb dropped into post-mortem mode at `return volume * weight`, with `volume = '120'`, `weight = '2'`.  
+  This happens on the **first** SUCCESS record (`idx == 0`), so with only the conditional breakpoint `b 31, idx == 2`, the program crashed *before* the breakpoint was ever hit and pdb dropped into post-mortem mode at `return volume * weight`, with `volume = '120'`, `weight = '2'`.  
   The bug is also insidious because Python is dynamically typed and the code "almost" works: had only `weight` been an `int`, `'120' * 2` would silently produce the string `'120120'` (sequence repetition) instead of `240`. The failure would then surface later and further from the cause (`'120120' > 500` → `TypeError: '>' not supported between 'str' and 'int'`, and `total_volume += '120'` → `TypeError: unsupported operand type(s) for +=: 'int' and 'str'`). Type hints such as `raw_entry: str -> dict` are not enforced at runtime, so nothing stopped the strings from flowing through.
 
 ### 2. Call Stack Inspection
 Paused after stepping into (`s`, equivalent of `F11`) `compute_weighted_metric`, the `where` command shows:
 ```text
 (Pdb) where
-  scripts/debug_challenge.py(66)<module>()
+  scripts/debug_challenge.py(65)<module>()
 -> result = aggregate_telemetry(api_payload)
-  scripts/debug_challenge.py(32)aggregate_telemetry()
+  scripts/debug_challenge.py(31)aggregate_telemetry()
 -> impact = compute_weighted_metric(record["volume"], record["weight"])
-> scripts/debug_challenge.py(20)compute_weighted_metric()
+> scripts/debug_challenge.py(19)compute_weighted_metric()
 -> return volume * weight
 (Pdb) args
 volume = '120'
 weight = '2'
 ```
-- **Frame 1 — `<module>` (line 66):** the script's top level, which called `aggregate_telemetry(api_payload)`.
-- **Frame 2 — `aggregate_telemetry` (line 32):** the loop, with locals `idx`, `row`, `record`, `total_volume`, `successful_entries`, `high_impact_count`; it called `compute_weighted_metric`.
-- **Frame 3 — `compute_weighted_metric` (line 20), current frame:** arguments `volume='120'`, `weight='2'`, about to evaluate `volume * weight`.
+- **Frame 1 — `<module>` (line 65):** the script's top level, which called `aggregate_telemetry(api_payload)`.
+- **Frame 2 — `aggregate_telemetry` (line 31):** the loop, with locals `idx`, `row`, `record`, `total_volume`, `successful_entries`, `high_impact_count`; it called `compute_weighted_metric`.
+- **Frame 3 — `compute_weighted_metric` (line 19), current frame:** arguments `volume='120'`, `weight='2'`, about to evaluate `volume * weight`.
 
 (Above `<module>`, pdb also lists its own internal frames `bdb.run` / `<string>`, which are the debugger launching the script.)
 
@@ -326,17 +326,17 @@ The fix is applied at the source of the bad data — the parser — so every con
          "id": parts[0],
          "entity": parts[1],
 -        "volume": parts[2],        # <-- Hint: What runtime type is this?
-+        "volume": float(parts[2]),  # CSV fields are str: cast to a number at parse time
++        "volume": float(parts[2]),
          "status": parts[3],
 -        "weight": parts[4]          # <-- Hint: What runtime type is this?
-+        "weight": int(parts[4])     # multiplier is an integer count
++        "weight": int(parts[4])
      }
 ```
 `volume` is a `float` so that `total_volume` comes out as `650.0` as expected; `weight` is an integer multiplier.
 
 Re-checked in the debugger with the conditional breakpoint, which now fires on the third record (REC_003):
 ```text
-(Pdb) b 32, idx == 2
+(Pdb) b 31, idx == 2
 (Pdb) c
 -> impact = compute_weighted_metric(record["volume"], record["weight"])
 (Pdb) p idx

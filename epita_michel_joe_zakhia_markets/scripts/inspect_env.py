@@ -1,4 +1,3 @@
-# scripts/inspect_env.py
 import sys
 import os
 

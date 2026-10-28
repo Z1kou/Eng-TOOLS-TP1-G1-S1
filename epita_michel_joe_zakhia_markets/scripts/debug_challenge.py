@@ -1,4 +1,3 @@
-# scripts/debug_challenge.py
 """
 EPITA CM2 Debugging Challenge: API Payload & Batch Aggregator.
 This script contains runtime type mismatches and faulty aggregations.
@@ -11,9 +10,9 @@ def parse_api_record(raw_entry: str) -> dict:
     return {
         "id": parts[0],
         "entity": parts[1],
-        "volume": float(parts[2]),  # CSV fields are str: cast to a number at parse time
+        "volume": float(parts[2]),
         "status": parts[3],
-        "weight": int(parts[4])     # multiplier is an integer count
+        "weight": int(parts[4])
     }
 
 def compute_weighted_metric(volume, weight):
