@@ -1,7 +1,7 @@
 [project]
 name = "epita-michel-joe-zakhia-markets"
 version = "0.1.0"
-description = "Add your description here"
+description = "EPITA Engineering Tools TP2 - live Finnhub market quote CLI"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -9,6 +9,9 @@ dependencies = [
     "requests>=2.34.2",
     "rich>=15.0.0",
 ]
+
+[project.scripts]
+epita-michel-joe-zakhia-cli = "epita_michel_joe_zakhia_markets.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]

@@ -165,3 +165,54 @@ epita-michel-joe-zakhia-markets v0.1.0
    ]
    ```
    On install, `uv` hashes the downloaded file and refuses to install it if the digest does not match. So if the package index, a mirror or a proxy is compromised, or an attacker re-uploads a tampered file under the same name and version, the hash check fails and the build stops instead of executing malicious code. Because every transitive package is hashed too (136 hashes in our lockfile), the whole dependency graph is verified, not just the direct dependencies.
+
+---
+
+## Part 4: Package Build & TestPyPI Deployment
+
+### 1. CLI Entrypoint & Local Run
+```toml
+[project.scripts]
+epita-michel-joe-zakhia-cli = "epita_michel_joe_zakhia_markets.cli:main"
+```
+
+```text
+$ uv run epita-michel-joe-zakhia-cli
+╭─ EPITA Engineering Tools — Session 2 ─╮
+│       Live System Telemetry:          │
+│            LIVE_SUCCESS               │
+│ ┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓    │
+│ ┃ Property        ┃ Value        ┃    │
+│ ┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩    │
+│ │ status          │ LIVE_SUCCESS │    │
+│ │ symbol          │ NVDA         │    │
+│ │ current_price   │ 217.04       │    │
+│ │ high_of_the_day │ 219.99       │    │
+│ │ low_of_the_day  │ 216.62       │    │
+│ │ previous_close  │ 217.94       │    │
+│ └─────────────────┴──────────────┘    │
+╰───────────────────────────────────────╯
+```
+
+### 2. Build Artifacts (`uv build`)
+```text
+Successfully built dist/epita_michel_joe_zakhia_markets-0.1.0.tar.gz
+Successfully built dist/epita_michel_joe_zakhia_markets-0.1.0-py3-none-any.whl
+```
+
+### 3. TestPyPI Deployment Details
+- **TestPyPI Package Name:** `epita-michel-joe-zakhia-markets`
+- **Public URL:** `https://test.pypi.org/project/epita-michel-joe-zakhia-markets/`
+- **CLI installation and execution output:**
+```bash
+$ cd /tmp
+$ uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ --index-strategy unsafe-best-match --from epita-michel-joe-zakhia-markets epita-michel-joe-zakhia-cli
+[Paste output here]
+```
+
+### 4. Packaging Theory
+- **What is the difference between an `sdist` (.tar.gz) and a Wheel (.whl)?**  
+  An **sdist** is an archive of the *source*: `pyproject.toml`, `src/` and metadata. To install it, the client must download the build backend (`uv_build`) declared in `[build-system]` and run a build step locally to produce a wheel. A **wheel** is the *already-built* distribution: a zip whose files are laid out exactly as they must land in `site-packages`, plus `dist-info` metadata (`METADATA`, `entry_points.txt`, `RECORD`). The tag `py3-none-any` means it is pure Python and works on any OS/CPU with Python 3.
+- **Why are Wheels significantly faster and safer to install on client machines?**
+  1. **Faster:** installing a wheel is just unzip-and-copy; there is no build environment to create, no build-backend download and no compilation (critical for packages with C extensions such as `numpy`, where building from source can take minutes and needs a compiler).
+  2. **Safer:** an sdist build *executes arbitrary code* from the package (the build backend, or `setup.py` for legacy packages) on the client machine at install time, which is a classic supply-chain attack vector. A wheel executes no code during installation. It is also reproducible: the exact file that was tested is what gets installed, and every file inside is listed with its SHA-256 hash in `RECORD`, so tampering is detectable.
