@@ -56,14 +56,29 @@ Under `uv run`, `sys.executable` is `.venv/bin/python` and `sys.prefix` points t
 ## Part 2: Live API Connection & 12-Factor Secret Hygiene
 
 ### 1. Git Status Output
-*(Paste the output of `git status` once `.env.template` is committed — `.env` must not appear.)*
-
 ```bash
-$ git status
-[Paste output here]
+$ git status .
+On branch main
+Your branch is ahead of 'origin/main' by 3 commits.
+  (use "git push" to publish your local commits)
+
+nothing to commit, working tree clean
+
+$ git status --short --ignored .
+!! .env
+!! .venv/
+!! global_env_output.txt
+!! src/epita_michel_joe_zakhia_markets/__pycache__/
+!! uv_env_output.txt
+
+$ git ls-files .env.template .env
+.env.template
+
+$ git check-ignore -v .env
+.gitignore:2:.env	.env
 ```
 
-`.env` is listed in `.gitignore` (`git check-ignore -v .env` → `.gitignore:2:.env`), so it never shows up as untracked; `.env.template` (placeholder values only) is tracked.
+`.env` exists locally (it holds the real key) but never appears as untracked or staged: it is only listed as ignored (`!!`), matched by line 2 of `.gitignore`. `.env.template` (placeholder values only) is tracked and committed. `.venv/`, `__pycache__/` and the `*.txt` outputs are ignored too.
 
 ### 2. Live API Response (Redacted)
 ```bash
