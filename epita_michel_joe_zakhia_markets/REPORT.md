@@ -4,7 +4,7 @@
 **EPITA Login:** michel-joe.zakhia  
 **Assigned API Group:** Group 1 — Markets (Finnhub)  
 **Date:** 28/10/2026  
-**TestPyPI Live Package URL:** [https://test.pypi.org/project/epita_michel_joe_zakhia_markets/]  
+**TestPyPI Live Package URL:** <https://test.pypi.org/project/epita-michel-joe-zakhia-markets/>  
 
 ---
 
@@ -205,10 +205,35 @@ Successfully built dist/epita_michel_joe_zakhia_markets-0.1.0-py3-none-any.whl
 - **Public URL:** `https://test.pypi.org/project/epita-michel-joe-zakhia-markets/`
 - **CLI installation and execution output:**
 ```bash
+$ uv publish --publish-url https://test.pypi.org/legacy/ --token "pypi-***"
+Publishing 2 files to https://test.pypi.org/legacy/
+Uploading epita_michel_joe_zakhia_markets-0.1.0-py3-none-any.whl (3.9KiB)
+Uploading epita_michel_joe_zakhia_markets-0.1.0.tar.gz (2.1KiB)
+
 $ cd /tmp
+$ export FINNHUB_API_KEY="***"
 $ uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ --index-strategy unsafe-best-match --from epita-michel-joe-zakhia-markets epita-michel-joe-zakhia-cli
-[Paste output here]
+Installed 11 packages in 10ms
+╭─ EPITA Engineering Tools — Session 2 ─╮
+│       Live System Telemetry:          │
+│            LIVE_SUCCESS               │
+│ ┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓    │
+│ ┃ Property        ┃ Value        ┃    │
+│ ┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩    │
+│ │ status          │ LIVE_SUCCESS │    │
+│ │ symbol          │ NVDA         │    │
+│ │ current_price   │ 216.63       │    │
+│ │ high_of_the_day │ 219.99       │    │
+│ │ low_of_the_day  │ 216.56       │    │
+│ │ previous_close  │ 217.94       │    │
+│ └─────────────────┴──────────────┘    │
+╰───────────────────────────────────────╯
 ```
+
+Notes on the verification command:
+- `uvx` (= `uv tool run`) is used instead of `uv run`: outside a project, `uv run` has no environment containing the CLI, whereas `uvx --from <package>` installs the package into a throw-away environment and runs its `[project.scripts]` entrypoint.
+- `--index-strategy unsafe-best-match` is needed because TestPyPI hosts old/squatted copies of `requests`, `rich`, etc.; with uv's default "first index wins" strategy it would try to take those from TestPyPI and fail to satisfy our version constraints.
+- `FINNHUB_API_KEY` is exported in the shell because the installed tool runs outside the project, where there is no `.env` — the secret is still supplied by the environment, never baked into the package.
 
 ### 4. Packaging Theory
 - **What is the difference between an `sdist` (.tar.gz) and a Wheel (.whl)?**  
