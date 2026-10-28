@@ -1,0 +1,19 @@
+version = 1
+revision = 5
+requires-python = ">=3.13"
+
+[manifest]
+members = [
+    "epita-manh-duc-nguyen-financial-markets",
+    "epita-vaibhav-nai-fintech",
+]
+
+[[package]]
+name = "epita-manh-duc-nguyen-financial-markets"
+version = "0.1.0"
+source = { editable = "epita_manh_duc_nguyen_financial_markets" }
+
+[[package]]
+name = "epita-vaibhav-nai-fintech"
+version = "0.1.0"
+source = { editable = "." }
