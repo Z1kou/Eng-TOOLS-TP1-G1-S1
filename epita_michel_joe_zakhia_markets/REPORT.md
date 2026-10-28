@@ -216,3 +216,94 @@ $ uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.o
 - **Why are Wheels significantly faster and safer to install on client machines?**
   1. **Faster:** installing a wheel is just unzip-and-copy; there is no build environment to create, no build-backend download and no compilation (critical for packages with C extensions such as `numpy`, where building from source can take minutes and needs a compiler).
   2. **Safer:** an sdist build *executes arbitrary code* from the package (the build backend, or `setup.py` for legacy packages) on the client machine at install time, which is a classic supply-chain attack vector. A wheel executes no code during installation. It is also reproducible: the exact file that was tested is what gets installed, and every file inside is listed with its SHA-256 hash in `RECORD`, so tampering is detectable.
+
+---
+
+## Part 5: Professional Debugging Challenge (No `print()`!)
+
+Debugger used: Python's interactive debugger, `uv run python -m pdb scripts/debug_challenge.py` (no `print()` added). The breakpoint line is **line 32** in our file (`impact = compute_weighted_metric(...)`).
+
+### 1. Root Cause Analysis
+- **Observed types in the debugger:**
+  - Runtime type of `record['volume']`: `str` (`'120'`)
+  - Runtime type of `record['weight']`: `str` (`'2'`)
+
+```text
+(Pdb) b 32
+(Pdb) c
+> scripts/debug_challenge.py(32)aggregate_telemetry()
+-> impact = compute_weighted_metric(record["volume"], record["weight"])
+(Pdb) p idx
+0
+(Pdb) p type(record["volume"]), type(record["weight"])
+(<class 'str'>, <class 'str'>)
+```
+
+- **Why did the original code fail?**  
+  `parse_api_record` splits a CSV line with `str.split(",")`, which always yields **strings**; the numeric fields were never converted. In `compute_weighted_metric`, `'120' * '2'` is `str * str`, which Python rejects:
+  ```text
+  TypeError: can't multiply sequence by non-int of type 'str'
+  ```
+  This happens on the **first** SUCCESS record (`idx == 0`), so with only the conditional breakpoint `b 32, idx == 2`, the program crashed *before* the breakpoint was ever hit and pdb dropped into post-mortem mode at `return volume * weight`, with `volume = '120'`, `weight = '2'`.  
+  The bug is also insidious because Python is dynamically typed and the code "almost" works: had only `weight` been an `int`, `'120' * 2` would silently produce the string `'120120'` (sequence repetition) instead of `240`. The failure would then surface later and further from the cause (`'120120' > 500` → `TypeError: '>' not supported between 'str' and 'int'`, and `total_volume += '120'` → `TypeError: unsupported operand type(s) for +=: 'int' and 'str'`). Type hints such as `raw_entry: str -> dict` are not enforced at runtime, so nothing stopped the strings from flowing through.
+
+### 2. Call Stack Inspection
+Paused after stepping into (`s`, equivalent of `F11`) `compute_weighted_metric`, the `where` command shows:
+```text
+(Pdb) where
+  scripts/debug_challenge.py(66)<module>()
+-> result = aggregate_telemetry(api_payload)
+  scripts/debug_challenge.py(32)aggregate_telemetry()
+-> impact = compute_weighted_metric(record["volume"], record["weight"])
+> scripts/debug_challenge.py(20)compute_weighted_metric()
+-> return volume * weight
+(Pdb) args
+volume = '120'
+weight = '2'
+```
+- **Frame 1 — `<module>` (line 66):** the script's top level, which called `aggregate_telemetry(api_payload)`.
+- **Frame 2 — `aggregate_telemetry` (line 32):** the loop, with locals `idx`, `row`, `record`, `total_volume`, `successful_entries`, `high_impact_count`; it called `compute_weighted_metric`.
+- **Frame 3 — `compute_weighted_metric` (line 20), current frame:** arguments `volume='120'`, `weight='2'`, about to evaluate `volume * weight`.
+
+(Above `<module>`, pdb also lists its own internal frames `bdb.run` / `<string>`, which are the debugger launching the script.)
+
+### 3. The Fix (Code Diff / Snippet)
+The fix is applied at the source of the bad data — the parser — so every consumer receives numbers, instead of patching `compute_weighted_metric` and the accumulators separately:
+```diff
+@@ def parse_api_record(raw_entry: str) -> dict:
+     return {
+         "id": parts[0],
+         "entity": parts[1],
+-        "volume": parts[2],        # <-- Hint: What runtime type is this?
++        "volume": float(parts[2]),  # CSV fields are str: cast to a number at parse time
+         "status": parts[3],
+-        "weight": parts[4]          # <-- Hint: What runtime type is this?
++        "weight": int(parts[4])     # multiplier is an integer count
+     }
+```
+`volume` is a `float` so that `total_volume` comes out as `650.0` as expected; `weight` is an integer multiplier.
+
+Re-checked in the debugger with the conditional breakpoint, which now fires on the third record (REC_003):
+```text
+(Pdb) b 32, idx == 2
+(Pdb) c
+-> impact = compute_weighted_metric(record["volume"], record["weight"])
+(Pdb) p idx
+2
+(Pdb) p type(record["volume"]), type(record["weight"])
+(<class 'float'>, <class 'int'>)
+(Pdb) s
+(Pdb) s
+(Pdb) args
+volume = 450.0
+weight = 3
+(Pdb) p volume * weight
+1350.0
+```
+
+### 4. Verified Execution Output
+```text
+$ uv run python scripts/debug_challenge.py
+Aggregate Result: {'successful_entries': 3, 'total_volume': 650.0, 'avg_volume': 216.66666666666666, 'high_impact_count': 1}
+```
+This matches the expected result exactly (650 / 3 = 216.67, and only REC_003 has impact > 500).

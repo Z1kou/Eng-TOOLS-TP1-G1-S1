@@ -11,9 +11,9 @@ def parse_api_record(raw_entry: str) -> dict:
     return {
         "id": parts[0],
         "entity": parts[1],
-        "volume": parts[2],        # <-- Hint: What runtime type is this?
+        "volume": float(parts[2]),  # CSV fields are str: cast to a number at parse time
         "status": parts[3],
-        "weight": parts[4]          # <-- Hint: What runtime type is this?
+        "weight": int(parts[4])     # multiplier is an integer count
     }
 
 def compute_weighted_metric(volume, weight):
