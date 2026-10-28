@@ -50,3 +50,103 @@ Under `uv run`, `sys.executable` is `.venv/bin/python` and `sys.prefix` points t
 
 ### 2. `.gitignore`
 `.venv/`, `.env`, `__pycache__/`, `.pytest_cache/`, `dist/`, `*.egg-info/` and `*.txt` are ignored. `.gitignore` and `scripts/inspect_env.py` are committed.
+
+---
+
+## Part 2: Live API Connection & 12-Factor Secret Hygiene
+
+### 1. Git Status Output
+*(Paste the output of `git status` once `.env.template` is committed — `.env` must not appear.)*
+
+```bash
+$ git status
+[Paste output here]
+```
+
+`.env` is listed in `.gitignore` (`git check-ignore -v .env` → `.gitignore:2:.env`), so it never shows up as untracked; `.env.template` (placeholder values only) is tracked.
+
+### 2. Live API Response (Redacted)
+```bash
+$ uv run python -c "from epita_michel_joe_zakhia_markets.client import fetch_live_data; print(fetch_live_data())"
+```
+
+```json
+{
+  "status": "LIVE_SUCCESS",
+  "symbol": "NVDA",
+  "current_price": 216.98,
+  "high_of_the_day": 219.99,
+  "low_of_the_day": 216.62,
+  "previous_close": 217.94
+}
+```
+*(The API key is sent only in the `X-Finnhub-Token` header and never appears in the response.)*
+
+Without a valid key, `config.validate()` fails fast before any network call:
+```text
+ValueError: CRITICAL SECURITY / CONFIG ERROR: API key is not configured!
+Ensure your .env file exists and contains a valid API key.
+```
+
+### 3. Security Analysis
+- **Why are environment variables superior to `config.json` / `settings.yaml` for secrets?**
+  1. **No secrets in version control.** Config files usually live next to the code and get committed, so a key ends up in Git history forever (and in every clone, fork and CI cache). Environment variables are injected at runtime, and the only file that holds them locally (`.env`) is git-ignored; the repo ships only `.env.template` with dummy values.
+  2. **Per-environment isolation and easy rotation.** The same code artifact runs in dev, staging and prod, each with its own credentials supplied by the environment (shell, CI secrets, secret manager). A leaked dev key does not expose prod, and rotating a key means changing the environment, not editing, rebuilding and redeploying code.
+- **Why are default fallbacks like `os.getenv("API_KEY", "default")` dangerous?**
+  A fallback hides misconfiguration: if the variable is missing, the app silently runs with a fake or shared hardcoded value instead of crashing at startup. That either fails later in confusing ways (401s deep in the app) or, worse, a real default key gets hardcoded in source and leaked. Using an empty default plus `validate()` makes the app fail fast with a clear error.
+
+---
+
+## Part 3: Dependency Hygiene & Semantic Versioning
+
+### 1. Dependency Tree (`uv tree`)
+
+```text
+$ uv tree
+Resolved 16 packages in 3ms
+epita-michel-joe-zakhia-markets v0.1.0
+├── python-dotenv v1.2.4
+├── requests v2.34.2
+│   ├── certifi v2026.10.23
+│   ├── charset-normalizer v3.5.2
+│   ├── idna v3.20
+│   └── urllib3 v2.8.0
+├── rich v15.0.0
+│   ├── markdown-it-py v4.2.0
+│   │   └── mdurl v0.1.2
+│   └── pygments v2.21.0
+└── pytest v9.2.0 (group: dev)
+    ├── iniconfig v2.3.1
+    ├── packaging v26.3
+    ├── pluggy v1.7.0
+    └── pygments v2.21.0
+```
+
+- **Direct dependencies** (declared in `pyproject.toml`):
+  - Runtime (`[project].dependencies`): `python-dotenv`, `requests`, `rich`
+  - Development only (`[dependency-groups].dev`, not shipped in the wheel's requirements): `pytest`
+- **Transitive dependencies:**
+  - Pulled in by `requests`: `certifi` (CA bundle), `charset-normalizer` (encoding detection), `idna` (internationalized domain names), `urllib3` (HTTP connection pooling)
+  - Pulled in by `rich`: `markdown-it-py` → `mdurl`, and `pygments` (syntax highlighting)
+  - (Pulled in by `pytest`, dev only: `iniconfig`, `packaging`, `pluggy`, `pygments`)
+
+### 2. Lockfile & SemVer Analysis
+1. **Meaning of version specifiers:**
+   - `requests = "^2.31.0"`: caret = "compatible with 2.31.0" → `>=2.31.0, <3.0.0`. Any minor/patch release of major version 2 is allowed, never 3.x.
+   - `urllib3 = "~=2.2.1"`: PEP 440 compatible-release → `>=2.2.1, <2.3.0`. Only patch updates of 2.2 are allowed.
+   - `rich = "==13.7.1"`: exact pin → only version `13.7.1`, nothing else.
+
+   *Note:* `^` is Poetry/npm syntax and is not valid PEP 440; in a `pyproject.toml` read by `uv`, the equivalent is `requests>=2.31.0,<3`.
+2. **If an upstream author releases `3.0.0`, will `^2.31.0` install it?**  
+   No. Under SemVer a major bump (2 → 3) signals breaking API changes, and the caret range has an upper bound of `<3.0.0`. `uv lock --upgrade` re-resolves to the newest version *that still satisfies the constraints*, so it would move to the latest 2.x and ignore 3.0.0. Moving to 3.x requires deliberately editing the constraint.  
+   (By contrast, the `>=` specifiers that `uv add` writes by default, e.g. `requests>=2.34.2`, have **no** upper bound, so `uv lock --upgrade` *would* pick 3.0.0 — the lockfile and tests are what protect us there.)
+3. **`pyproject.toml` (declaration) vs `uv.lock` (pinning):**  
+   `pyproject.toml` is the human-edited *intent*: which direct packages the project needs and which version *ranges* are acceptable. It contains no transitive dependencies and several concrete versions could satisfy it. `uv.lock` is the machine-generated *resolution*: the exact version of every package in the whole graph (direct + transitive, 16 here), its source URL and its file hashes. The same lockfile produces the byte-identical environment on every machine and in CI (`uv sync --locked`), while `pyproject.toml` alone could resolve differently tomorrow.
+4. **How do SHA-256 hashes in `uv.lock` protect against supply-chain attacks?**  
+   Each sdist and wheel in `uv.lock` records the SHA-256 digest of the exact file that was resolved, e.g.:
+   ```toml
+   wheels = [
+       { url = ".../requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", ... },
+   ]
+   ```
+   On install, `uv` hashes the downloaded file and refuses to install it if the digest does not match. So if the package index, a mirror or a proxy is compromised, or an attacker re-uploads a tampered file under the same name and version, the hash check fails and the build stops instead of executing malicious code. Because every transitive package is hashed too (136 hashes in our lockfile), the whole dependency graph is verified, not just the direct dependencies.
