@@ -41,6 +41,22 @@
 | First `$PATH` entry | `~/.local/bin` | `<project>/.venv/bin` |
 | `site-packages` | global Xcode `site-packages` | `<project>/.venv/lib/python3.13/site-packages` |
 
+#### `$PATH` comparison (first 4 entries, from the two output files)
+```text
+global_env_output.txt                 uv_env_output.txt
+=== OS Executable Path ($PATH) ===     === OS Executable Path ($PATH) ===
+  - /Users/micho/.local/bin             - <project>/.venv/bin          <-- injected by uv run
+  - /opt/homebrew/bin                   - /Users/micho/.local/bin
+  - /opt/homebrew/sbin                  - /opt/homebrew/bin
+  - /usr/local/bin                      - /opt/homebrew/sbin
+```
+
+The shell resolves a command name by scanning `$PATH` left to right and running the first match. Globally, no directory before `/usr/bin` contains `python3`, so `python3` resolves to the macOS stub `/usr/bin/python3`, which forwards to the Xcode interpreter (hence the `/Applications/Xcode.app/...` executable). Under `uv run`, `<project>/.venv/bin` is **prepended** to `$PATH`, so `python` resolves to `.venv/bin/python` first, as does any console script installed in the venv (e.g. `epita-michel-joe-zakhia-cli`, `pytest`). The rest of `$PATH` is unchanged, only shifted by one entry.
+
+#### `sys.path` comparison (import search order)
+- Global: `.../Python3.framework/Versions/3.9/lib/python3.9/...` and the global `site-packages` → packages are shared by every project on the machine.
+- `uv run`: the uv-managed CPython 3.13 standard library, then `<project>/.venv/lib/python3.13/site-packages` → only this project's locked dependencies are importable.
+
 **Analysis:**  
 Globally, `python3` resolves to the macOS/Xcode system interpreter. `sys.prefix == sys.base_prefix`, so there is no isolation, and any package installed would land in the shared system `site-packages`.
 
@@ -97,7 +113,17 @@ $ uv run python -c "from epita_michel_joe_zakhia_markets.client import fetch_liv
 ```
 *(The API key is sent only in the `X-Finnhub-Token` header and never appears in the response.)*
 
-Without a valid key, `config.validate()` fails fast before any network call:
+The key is read from the group-specific variable `FINNHUB_API_KEY` and validated defensively in `config.py`, before any request is sent:
+```python
+api_key: str = os.getenv("FINNHUB_API_KEY", "")   # empty default: no hidden fallback key
+
+def validate(self):
+    if not self.api_key or self.api_key.startswith("your_"):   # missing, or still the template placeholder
+        raise ValueError("CRITICAL SECURITY / CONFIG ERROR: API key is not configured! ...")
+```
+`client.fetch_live_data()` calls `config.validate()` first, and the request uses `timeout=10` and `resp.raise_for_status()`, so HTTP errors (e.g. `401` for a bad key) surface as exceptions instead of silently returning bad data.
+
+Without a valid key (e.g. `.env` freshly copied from `.env.template`), `config.validate()` fails fast before any network call:
 ```text
 ValueError: CRITICAL SECURITY / CONFIG ERROR: API key is not configured!
 Ensure your .env file exists and contains a valid API key.
