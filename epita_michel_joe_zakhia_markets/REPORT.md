@@ -10,7 +10,12 @@
 
 ## Step 0: Assigned Group Verification
 - **Group Command Output:**  
-  *(Paste the output of `python3 -c "..."` proving your assigned group)*
+  ```text
+  Enter your EPITA login (e.g. ismail.lachheb): michel-joe.zakhia
+
+  >>> SUCCESS: You are assigned to GROUP 3!
+  ```
+  > **Note:** The formula assigns my login to Group 3, but this lab is done as a team and our team was assigned **Group 1 (Financial Markets / Finnhub)**, so the whole project targets Group 1.
 - **Assigned Domain:** `Group 1 - Finnhub`
 - **Project Directory Name:** `epita_michel_joe_zakhia_markets`
 
